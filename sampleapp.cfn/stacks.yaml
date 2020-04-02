@@ -1,0 +1,31 @@
+namespace: ${namespace}
+stacker_bucket: ${stacker_bucket_name}
+
+sys_path: ./
+
+stacks:
+  runway-vpc:
+    template_path: templates/cet005_VPC_Script.yml  # also supports json templates
+    variables:
+      VpcCIDR: 10.40.0.0/16 #${default tf_state_bucket_name::undefined}
+      PublicSubnet1CIDR: 10.40.1.0/24 #${default tf_state_table_name::undefined}
+      PublicSubnet2CIDR: 10.40.2.0/24
+      PrivateSubnet1CIDR: 10.40.10.0/24
+      PrivateSubnet2CIDR: 10.40.20.0/24
+  
+  runway-server:
+    template_path: templates/cet005_SERVER_Script.yml  
+    requires:
+      - runway-vpc  
+    variables:
+      KeyName: Cet004KeyPair
+      PublicIP: 105.183.225.132/32
+      VpcStackName: ${namespace}-runway-vpc
+      BastionInstanceType: t2.micro
+      PublicInstanceTypeInAZ1: t2.micro
+      PublicInstanceTypeInAZ2: t2.micro
+      PrivateInstanceTypeInAZ1: t2.micro
+      PrivateInstanceTypeInAZ2: t2.micro
+      LatestAmiId: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+
