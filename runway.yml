@@ -1,0 +1,9 @@
+---
+# See full syntax at https://docs.onica.com/projects/runway/en/latest/
+deployments:
+  - modules:
+      - sampleapp.cfn
+      # - nameofmysecondmodulefolder
+      # - etc...
+    regions:
+      - us-east-2

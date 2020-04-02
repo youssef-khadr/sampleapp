@@ -1,0 +1,328 @@
+
+
+Parameters:
+  
+  KeyName:
+    Description: Name of SSH KeyPair
+    Type: 'AWS::EC2::KeyPair::KeyName'
+  PublicIP:
+    Type: String
+    Description: Public IP address from which to restrict traffic from (e.g., 12.34.56.78/32)
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: Value must be in the format of <ip address>/<cidr>
+    #TODO Remove IP
+    Default: 105.183.105.144/32
+  VpcStackName:
+    Type: String
+    Default: VPC-Stack
+  BastionInstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+      - m1.small
+      - m1.large 
+  PublicInstanceTypeInAZ1:
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+      - m1.small
+      - m1.large     
+  PublicInstanceTypeInAZ2:
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+      - m1.small
+      - m1.large       
+  PrivateInstanceTypeInAZ1:
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+      - m1.small
+      - m1.large     
+  PrivateInstanceTypeInAZ2:
+    Type: String
+    Default: t2.micro
+    AllowedValues: 
+      - t2.micro
+      - m1.small
+      - m1.large            
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'    
+
+
+
+Resources:
+#For SSH Access Only to bastion host
+  BastionSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enables SSH Access to Bastion Host
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${VpcStackName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref PublicIP
+
+  BastionHost:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - BastionSecurityGroup
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref BastionInstanceType
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: BastionSecurityGroup
+          SubnetId:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-PublicSN1"
+      Tags:
+        - 
+          Key: "Name"
+          Value: "Bastion Host"
+      UserData:
+          'Fn::Base64': !Sub |
+            #!/bin/bash
+            yum update -y
+# End Of Bastion Creation
+
+# Public Security Group With two public instances
+  PublicSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enables SSH Access From VPC IP And http From everywhere
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${VpcStackName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-VpcCidrBlock"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0    
+  EC2InstancePublicSN1:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - PublicSecurityGroup
+    Metadata: 
+      AWS::CloudFormation::Init: 
+        config:
+          packages:
+            yum:
+            # To install Apache
+              httpd: []
+          files:
+            '/var/www/html/index.html':
+              content: <h1>Public Instance SN1 Hello World.</h1>   
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      InstanceType: !Ref PublicInstanceTypeInAZ1
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      Tags: 
+        - 
+          Key: "Name"
+          Value: "PublicInstanceInAZ1"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: PublicSecurityGroup
+          SubnetId:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-PublicSN1"
+
+      # To Run CFN helper files and run whats in metadata section
+      UserData:
+        'Fn::Base64':
+         !Sub |
+          #!/bin/bash
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r EC2InstancePublicSN1 --region ${AWS::Region}          
+
+  EC2InstancePublicSN2:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - PublicSecurityGroup
+    Metadata: 
+      AWS::CloudFormation::Init: 
+        config:
+          packages:
+            yum:
+            # To install Apache
+              httpd: []
+          files:
+            '/var/www/html/index.html':
+              content: <h1>Public Instance SN2 Hello World.</h1>   
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      InstanceType: !Ref PublicInstanceTypeInAZ2
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      Tags: 
+        - 
+          Key: "Name"
+          Value: "PublicInstanceInAZ2"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: PublicSecurityGroup
+          SubnetId:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-PublicSN2"
+
+      # To Run CFN helper files and run whats in metadata section
+      UserData:
+        'Fn::Base64':
+         !Sub |
+          #!/bin/bash
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r EC2InstancePublicSN2 --region ${AWS::Region}          
+  
+  # Private Security Group With two private instances
+  PrivateSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enables SSH Access From VPC IP And http From VPC IP
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${VpcStackName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-VpcCidrBlock"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-VpcCidrBlock"   
+  
+  EC2InstancePrivateSN1:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - PrivateSecurityGroup
+    Metadata: 
+      AWS::CloudFormation::Init: 
+        config:
+          packages:
+            yum:
+            # To install Apache
+              httpd: []
+          files:
+            '/var/www/html/index.html':
+              content: <h1>Private Instance SN1 Hello World.</h1>   
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      InstanceType: !Ref PrivateInstanceTypeInAZ1
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      Tags: 
+        - 
+          Key: "Name"
+          Value: "PrivateInstanceInAZ1"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "false"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: PrivateSecurityGroup
+          SubnetId:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-PrivateSN1"
+
+      # To Run CFN helper files and run whats in metadata section
+      UserData:
+        'Fn::Base64':
+         !Sub |
+          #!/bin/bash
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r EC2InstancePrivateSN1 --region ${AWS::Region}          
+
+  EC2InstancePrivateSN2:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - PrivateSecurityGroup
+    Metadata: 
+      AWS::CloudFormation::Init: 
+        config:
+          packages:
+            yum:
+            # To install Apache
+              httpd: []
+          files:
+            '/var/www/html/index.html':
+              content: <h1>Private Instance SN2 Hello World.</h1>   
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      InstanceType: !Ref PrivateInstanceTypeInAZ2
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      Tags: 
+        - 
+          Key: "Name"
+          Value: "PrivateInstanceInAZ2"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "false"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: PrivateSecurityGroup
+          SubnetId:
+            Fn::ImportValue:
+              !Sub "${VpcStackName}-PrivateSN2"
+
+      # To Run CFN helper files and run whats in metadata section
+      UserData:
+        'Fn::Base64':
+         !Sub |
+          #!/bin/bash
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v -s ${AWS::StackName} -r EC2InstancePrivateSN2 --region ${AWS::Region}          
+
